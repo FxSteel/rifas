@@ -1,8 +1,16 @@
 import { useState, useEffect, useMemo } from 'react'
 import { supabase, type Ticket } from './lib/supabase'
-import { Search, RotateCcw, X, Ticket as TicketIcon, Users, Clock } from 'lucide-react'
+import { Search, RotateCcw, X, Ticket as TicketIcon, Users, Clock, Plus, AlertTriangle } from 'lucide-react'
 
 type TicketMap = Map<number, Ticket>
+type ConfirmState = {
+  open: boolean
+  title: string
+  message: string
+  confirmLabel?: string
+  danger?: boolean
+  onConfirm: () => void
+}
 
 function App() {
   const [tickets, setTickets] = useState<TicketMap>(new Map())
@@ -12,10 +20,19 @@ function App() {
   const [buyerName, setBuyerName] = useState('')
   const [phone, setPhone] = useState('')
   const [status, setStatus] = useState<'sold' | 'reserved'>('sold')
-  const [search, setSearch] = useState('')
   const [buyerSearch, setBuyerSearch] = useState('')
   const [buyerFilter, setBuyerFilter] = useState<'all' | 'sold' | 'reserved'>('all')
   const [saving, setSaving] = useState(false)
+  const [totalNumbers, setTotalNumbers] = useState(100)
+  const [confirmModal, setConfirmModal] = useState<ConfirmState>({ open: false, title: '', message: '', onConfirm: () => {} })
+
+  function showConfirm(opts: Omit<ConfirmState, 'open'>) {
+    setConfirmModal({ ...opts, open: true })
+  }
+
+  function closeConfirm() {
+    setConfirmModal(prev => ({ ...prev, open: false }))
+  }
 
   useEffect(() => {
     fetchTickets()
@@ -39,8 +56,8 @@ function App() {
       if (t.status === 'sold') sold++
       else reserved++
     })
-    return { sold, reserved, available: 100 - sold - reserved }
-  }, [tickets])
+    return { sold, reserved, available: totalNumbers - tickets.size }
+  }, [tickets, totalNumbers])
 
   const filteredBuyers = useMemo(() => {
     const list = Array.from(tickets.values())
@@ -72,7 +89,7 @@ function App() {
 
     if (error) {
       console.error('Error saving:', error)
-      alert('Error al guardar. Intenta de nuevo.')
+      showConfirm({ title: 'Error', message: 'Error al guardar. Intenta de nuevo.', confirmLabel: 'Aceptar', onConfirm: closeConfirm })
     } else {
       await fetchTickets()
       setModalOpen(false)
@@ -80,41 +97,55 @@ function App() {
     setSaving(false)
   }
 
-  async function handleFree() {
+  function handleFree() {
     if (selectedNumber === null) return
-    if (!confirm('¿Liberar este número?')) return
-    setSaving(true)
-
-    const { error } = await supabase.from('tickets').delete().eq('number', selectedNumber)
-    if (error) {
-      console.error('Error deleting:', error)
-      alert('Error al liberar. Intenta de nuevo.')
-    } else {
-      await fetchTickets()
-      setModalOpen(false)
-    }
-    setSaving(false)
+    showConfirm({
+      title: 'Liberar número',
+      message: `¿Estás seguro de liberar el número ${selectedNumber}?`,
+      confirmLabel: 'Liberar',
+      danger: true,
+      onConfirm: async () => {
+        closeConfirm()
+        setSaving(true)
+        const { error } = await supabase.from('tickets').delete().eq('number', selectedNumber)
+        if (error) {
+          console.error('Error deleting:', error)
+          showConfirm({ title: 'Error', message: 'Error al liberar. Intenta de nuevo.', confirmLabel: 'Aceptar', onConfirm: closeConfirm })
+        } else {
+          await fetchTickets()
+          setModalOpen(false)
+        }
+        setSaving(false)
+      },
+    })
   }
 
-  async function handleReset() {
-    if (!confirm('¿Estás seguro de reiniciar TODA la rifa? Se borrarán todos los datos.')) return
-    if (!confirm('Esta acción NO se puede deshacer. ¿Continuar?')) return
-
-    const { error } = await supabase.from('tickets').delete().gte('number', 0)
-    if (error) {
-      console.error('Error resetting:', error)
-      alert('Error al reiniciar.')
-    } else {
-      await fetchTickets()
-    }
-  }
-
-  function handleSearchJump() {
-    const num = parseInt(search, 10)
-    if (!isNaN(num) && num >= 0 && num <= 99) {
-      openModal(num)
-      setSearch('')
-    }
+  function handleReset() {
+    showConfirm({
+      title: 'Reiniciar rifa',
+      message: '¿Estás seguro de reiniciar TODA la rifa? Se borrarán todos los datos.',
+      confirmLabel: 'Sí, reiniciar',
+      danger: true,
+      onConfirm: () => {
+        closeConfirm()
+        showConfirm({
+          title: 'Confirmación final',
+          message: 'Esta acción NO se puede deshacer. ¿Continuar?',
+          confirmLabel: 'Eliminar todo',
+          danger: true,
+          onConfirm: async () => {
+            closeConfirm()
+            const { error } = await supabase.from('tickets').delete().gte('number', 1)
+            if (error) {
+              console.error('Error resetting:', error)
+              showConfirm({ title: 'Error', message: 'Error al reiniciar. Intenta de nuevo.', confirmLabel: 'Aceptar', onConfirm: closeConfirm })
+            } else {
+              await fetchTickets()
+            }
+          },
+        })
+      },
+    })
   }
 
   if (loading) {
@@ -129,8 +160,8 @@ function App() {
     <div className="min-h-screen pb-8">
       {/* Header */}
       <header className="sticky top-0 z-10 bg-background/80 backdrop-blur-md border-b px-4 py-3">
-        <div className="max-w-2xl mx-auto">
-          <div className="flex items-center justify-between mb-3">
+        <div className="max-w-7xl mx-auto">
+          <div className="flex items-center justify-between">
             <h1 className="text-lg font-bold flex items-center gap-2">
               <TicketIcon className="w-5 h-5" />
               Talonario de Rifa
@@ -143,7 +174,13 @@ function App() {
               Reiniciar
             </button>
           </div>
+        </div>
+      </header>
 
+      {/* Two-column layout */}
+      <main className="max-w-7xl mx-auto px-3 pt-4 flex flex-col lg:flex-row gap-6">
+        {/* Left column: Stats + Search + Grid */}
+        <div className="flex-1 min-w-0">
           {/* Stats */}
           <div className="grid grid-cols-3 gap-2 mb-3">
             <div className="bg-card rounded-lg p-2 text-center border">
@@ -160,129 +197,123 @@ function App() {
             </div>
           </div>
 
-          {/* Search */}
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <input
-              type="number"
-              min={0}
-              max={99}
-              placeholder="Buscar número (00–99)..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleSearchJump()}
-              className="w-full pl-9 pr-4 py-2 text-sm rounded-lg border bg-card focus:outline-none focus:ring-2 focus:ring-ring/20"
-            />
-          </div>
-        </div>
-      </header>
+          {/* Grid */}
+          <div className="grid grid-cols-5 sm:grid-cols-10 gap-1.5">
+            {Array.from({ length: totalNumbers }, (_, i) => i + 1).map(i => {
+              const ticket = tickets.get(i)
+              const isSold = ticket?.status === 'sold'
+              const isReserved = ticket?.status === 'reserved'
 
-      {/* Grid */}
-      <main className="max-w-2xl mx-auto px-3 pt-4">
-        <div className="grid grid-cols-5 sm:grid-cols-10 gap-1.5">
-          {Array.from({ length: 100 }, (_, i) => {
-            const ticket = tickets.get(i)
-            const isSold = ticket?.status === 'sold'
-            const isReserved = ticket?.status === 'reserved'
-
-            return (
-              <button
-                key={i}
-                onClick={() => openModal(i)}
-                className={`
-                  relative aspect-square rounded-lg border text-center flex flex-col items-center justify-center
-                  transition-all active:scale-95 overflow-hidden
-                  ${isSold
-                    ? 'bg-sold text-white border-sold shadow-sm'
-                    : isReserved
-                      ? 'bg-reserved text-white border-reserved shadow-sm'
-                      : 'bg-card hover:bg-muted border-border hover:border-foreground/20'
-                  }
-                `}
-              >
-                <span className={`text-xs font-bold ${ticket ? 'opacity-70' : ''}`}>
-                  {String(i).padStart(2, '0')}
-                </span>
-                {ticket && (
-                  <span className="text-[7px] sm:text-[8px] leading-tight px-0.5 truncate w-full font-medium">
-                    {ticket.buyer_name.split(' ')[0]}
-                  </span>
-                )}
-              </button>
-            )
-          })}
-        </div>
-
-        {/* Buyer List */}
-        <section className="mt-8">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-base font-bold flex items-center gap-2">
-              <Users className="w-4 h-4" />
-              Compradores ({filteredBuyers.length})
-            </h2>
-          </div>
-
-          <div className="flex gap-2 mb-3">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-              <input
-                type="text"
-                placeholder="Buscar por nombre..."
-                value={buyerSearch}
-                onChange={e => setBuyerSearch(e.target.value)}
-                className="w-full pl-8 pr-3 py-1.5 text-sm rounded-lg border bg-card focus:outline-none focus:ring-2 focus:ring-ring/20"
-              />
-            </div>
-            <select
-              value={buyerFilter}
-              onChange={e => setBuyerFilter(e.target.value as typeof buyerFilter)}
-              className="px-3 py-1.5 text-sm rounded-lg border bg-card focus:outline-none focus:ring-2 focus:ring-ring/20"
-            >
-              <option value="all">Todos</option>
-              <option value="sold">Vendidos</option>
-              <option value="reserved">Reservados</option>
-            </select>
-          </div>
-
-          {filteredBuyers.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-8">
-              No hay compradores registrados
-            </p>
-          ) : (
-            <div className="space-y-1.5">
-              {filteredBuyers.map(t => (
+              return (
                 <button
-                  key={t.number}
-                  onClick={() => openModal(t.number)}
-                  className="w-full flex items-center gap-3 p-3 rounded-lg border bg-card hover:bg-muted transition-colors text-left"
+                  key={i}
+                  onClick={() => openModal(i)}
+                  className={`
+                    relative aspect-square rounded-lg border text-center flex flex-col items-center justify-center
+                    transition-all active:scale-95 overflow-hidden
+                    ${isSold
+                      ? 'bg-sold text-white border-sold shadow-sm'
+                      : isReserved
+                        ? 'bg-reserved text-white border-reserved shadow-sm'
+                        : 'bg-card hover:bg-muted border-border hover:border-foreground/20'
+                    }
+                  `}
                 >
-                  <span
-                    className={`w-9 h-9 rounded-md flex items-center justify-center text-sm font-bold text-white shrink-0 ${
-                      t.status === 'sold' ? 'bg-sold' : 'bg-reserved'
-                    }`}
-                  >
-                    {String(t.number).padStart(2, '0')}
+                  <span className={`text-xs font-bold ${ticket ? 'opacity-70' : ''}`}>
+                    {String(i)}
                   </span>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium truncate">{t.buyer_name}</div>
-                    {t.phone && (
-                      <div className="text-xs text-muted-foreground">{t.phone}</div>
-                    )}
-                  </div>
-                  <span
-                    className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full ${
-                      t.status === 'sold'
-                        ? 'bg-sold/10 text-sold'
-                        : 'bg-reserved/10 text-reserved'
-                    }`}
-                  >
-                    {t.status === 'sold' ? 'Vendido' : 'Reservado'}
-                  </span>
+                  {ticket && (
+                    <span className="text-[7px] sm:text-[8px] leading-tight px-0.5 truncate w-full font-medium">
+                      {ticket.buyer_name.split(' ')[0]}
+                    </span>
+                  )}
                 </button>
-              ))}
+              )
+            })}
+          </div>
+
+          {/* Add more numbers button */}
+          <button
+            onClick={() => setTotalNumbers(prev => prev + 50)}
+            className="w-full mt-3 py-2.5 text-sm font-medium rounded-lg border-2 border-dashed border-border text-muted-foreground hover:border-foreground/30 hover:text-foreground transition-colors flex items-center justify-center gap-2"
+          >
+            <Plus className="w-4 h-4" />
+            Agregar 50 números más (hasta {totalNumbers + 50})
+          </button>
+        </div>
+
+        {/* Right column: Buyer List */}
+        <aside className="lg:w-96 lg:shrink-0">
+          <div className="lg:sticky lg:top-16">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-base font-bold flex items-center gap-2">
+                <Users className="w-4 h-4" />
+                Compradores ({filteredBuyers.length})
+              </h2>
             </div>
-          )}
-        </section>
+
+            <div className="flex gap-2 mb-3">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                <input
+                  type="text"
+                  placeholder="Buscar por nombre..."
+                  value={buyerSearch}
+                  onChange={e => setBuyerSearch(e.target.value)}
+                  className="w-full pl-8 pr-3 py-1.5 text-sm rounded-lg border bg-card focus:outline-none focus:ring-2 focus:ring-ring/20"
+                />
+              </div>
+              <select
+                value={buyerFilter}
+                onChange={e => setBuyerFilter(e.target.value as typeof buyerFilter)}
+                className="px-3 py-1.5 text-sm rounded-lg border bg-card focus:outline-none focus:ring-2 focus:ring-ring/20"
+              >
+                <option value="all">Todos</option>
+                <option value="sold">Vendidos</option>
+                <option value="reserved">Reservados</option>
+              </select>
+            </div>
+
+            {filteredBuyers.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-8">
+                No hay compradores registrados
+              </p>
+            ) : (
+              <div className="space-y-1.5 lg:max-h-[calc(100vh-10rem)] lg:overflow-y-auto">
+                {filteredBuyers.map(t => (
+                  <button
+                    key={t.number}
+                    onClick={() => openModal(t.number)}
+                    className="w-full flex items-center gap-3 p-3 rounded-lg border bg-card hover:bg-muted transition-colors text-left"
+                  >
+                    <span
+                      className={`w-9 h-9 rounded-md flex items-center justify-center text-sm font-bold text-white shrink-0 ${
+                        t.status === 'sold' ? 'bg-sold' : 'bg-reserved'
+                      }`}
+                    >
+                      {String(t.number)}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium truncate">{t.buyer_name}</div>
+                      {t.phone && (
+                        <div className="text-xs text-muted-foreground">{t.phone}</div>
+                      )}
+                    </div>
+                    <span
+                      className={`text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full ${
+                        t.status === 'sold'
+                          ? 'bg-sold/10 text-sold'
+                          : 'bg-reserved/10 text-reserved'
+                      }`}
+                    >
+                      {t.status === 'sold' ? 'Vendido' : 'Reservado'}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </aside>
       </main>
 
       {/* Modal */}
@@ -307,9 +338,9 @@ function App() {
                         : 'bg-foreground'
                   }`}
                 >
-                  {String(selectedNumber).padStart(2, '0')}
+                  {String(selectedNumber)}
                 </span>
-                Número {String(selectedNumber).padStart(2, '0')}
+                Número {String(selectedNumber)}
               </h3>
               <button
                 onClick={() => setModalOpen(false)}
@@ -391,6 +422,51 @@ function App() {
                 className="flex-1 py-2 text-sm font-medium rounded-lg bg-foreground text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50"
               >
                 {saving ? 'Guardando...' : tickets.has(selectedNumber) ? 'Actualizar' : 'Guardar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Confirm Modal */}
+      {confirmModal.open && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center"
+          onClick={closeConfirm}
+        >
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+          <div
+            className="relative bg-card w-full max-w-sm mx-4 rounded-xl border shadow-xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="p-5 text-center">
+              {confirmModal.danger && (
+                <div className="mx-auto w-10 h-10 rounded-full bg-red-100 flex items-center justify-center mb-3">
+                  <AlertTriangle className="w-5 h-5 text-red-500" />
+                </div>
+              )}
+              <h3 className="font-bold text-base mb-1">{confirmModal.title}</h3>
+              <p className="text-sm text-muted-foreground">{confirmModal.message}</p>
+            </div>
+            <div className="flex border-t">
+              {confirmModal.confirmLabel !== 'Aceptar' && (
+                <button
+                  onClick={closeConfirm}
+                  className="flex-1 py-3 text-sm font-medium hover:bg-muted transition-colors rounded-bl-xl border-r"
+                >
+                  Cancelar
+                </button>
+              )}
+              <button
+                onClick={confirmModal.onConfirm}
+                className={`flex-1 py-3 text-sm font-medium transition-colors ${
+                  confirmModal.confirmLabel === 'Aceptar' ? 'rounded-b-xl' : 'rounded-br-xl'
+                } ${
+                  confirmModal.danger
+                    ? 'text-red-500 hover:bg-red-50'
+                    : 'text-foreground hover:bg-muted'
+                }`}
+              >
+                {confirmModal.confirmLabel ?? 'Confirmar'}
               </button>
             </div>
           </div>
