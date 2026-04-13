@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { supabase, type Ticket } from './lib/supabase'
-import { Search, RotateCcw, X, Ticket as TicketIcon, Users, Clock, Plus, AlertTriangle } from 'lucide-react'
+import { Search, RotateCcw, X, Ticket as TicketIcon, Users, Clock, Plus, AlertTriangle, Eye, EyeOff } from 'lucide-react'
 
 type TicketMap = Map<number, Ticket>
 type ConfirmState = {
@@ -24,6 +24,7 @@ function App() {
   const [buyerFilter, setBuyerFilter] = useState<'all' | 'sold' | 'reserved'>('all')
   const [saving, setSaving] = useState(false)
   const [totalNumbers, setTotalNumbers] = useState(100)
+  const [buyerView, setBuyerView] = useState(false)
   const [confirmModal, setConfirmModal] = useState<ConfirmState>({ open: false, title: '', message: '', onConfirm: () => {} })
 
   function showConfirm(opts: Omit<ConfirmState, 'open'>) {
@@ -166,13 +167,28 @@ function App() {
               <TicketIcon className="w-5 h-5" />
               Talonario de Rifa
             </h1>
-            <button
-              onClick={handleReset}
-              className="text-xs text-muted-foreground hover:text-red-500 transition-colors flex items-center gap-1 px-2 py-1 rounded-md hover:bg-red-50"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              Reiniciar
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setBuyerView(v => !v)}
+                className={`text-xs transition-colors flex items-center gap-1 px-2 py-1 rounded-md ${
+                  buyerView
+                    ? 'bg-blue-100 text-blue-600'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                }`}
+              >
+                {buyerView ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                {buyerView ? 'Vista comprador' : 'Vista admin'}
+              </button>
+              {!buyerView && (
+                <button
+                  onClick={handleReset}
+                  className="text-xs text-muted-foreground hover:text-red-500 transition-colors flex items-center gap-1 px-2 py-1 rounded-md hover:bg-red-50"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  Reiniciar
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </header>
@@ -207,22 +223,23 @@ function App() {
               return (
                 <button
                   key={i}
-                  onClick={() => openModal(i)}
+                  onClick={() => !buyerView && openModal(i)}
                   className={`
                     relative aspect-square rounded-lg border text-center flex flex-col items-center justify-center
-                    transition-all active:scale-95 overflow-hidden
+                    transition-all overflow-hidden
+                    ${buyerView ? 'cursor-default' : 'active:scale-95'}
                     ${isSold
                       ? 'bg-sold text-white border-sold shadow-sm'
                       : isReserved
                         ? 'bg-reserved text-white border-reserved shadow-sm'
-                        : 'bg-card hover:bg-muted border-border hover:border-foreground/20'
+                        : 'bg-card border-border' + (buyerView ? '' : ' hover:bg-muted hover:border-foreground/20')
                     }
                   `}
                 >
-                  <span className={`text-xs font-bold ${ticket ? 'opacity-70' : ''}`}>
+                  <span className={`text-xs font-bold ${ticket && !buyerView ? 'opacity-70' : ''}`}>
                     {String(i)}
                   </span>
-                  {ticket && (
+                  {ticket && !buyerView && (
                     <span className="text-[7px] sm:text-[8px] leading-tight px-0.5 truncate w-full font-medium">
                       {ticket.buyer_name.split(' ')[0]}
                     </span>
@@ -233,16 +250,17 @@ function App() {
           </div>
 
           {/* Add more numbers button */}
-          <button
+          {!buyerView && <button
             onClick={() => setTotalNumbers(prev => prev + 50)}
             className="w-full mt-3 py-2.5 text-sm font-medium rounded-lg border-2 border-dashed border-border text-muted-foreground hover:border-foreground/30 hover:text-foreground transition-colors flex items-center justify-center gap-2"
           >
             <Plus className="w-4 h-4" />
             Agregar 50 números más (hasta {totalNumbers + 50})
-          </button>
+          </button>}
         </div>
 
         {/* Right column: Buyer List */}
+        {!buyerView && (
         <aside className="lg:w-96 lg:shrink-0">
           <div className="lg:sticky lg:top-16">
             <div className="flex items-center justify-between mb-3">
@@ -314,6 +332,7 @@ function App() {
             )}
           </div>
         </aside>
+        )}
       </main>
 
       {/* Modal */}
