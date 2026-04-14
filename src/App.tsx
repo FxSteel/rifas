@@ -25,6 +25,7 @@ function App() {
   const [saving, setSaving] = useState(false)
   const [totalNumbers, setTotalNumbers] = useState(100)
   const [buyerView, setBuyerView] = useState(false)
+  const [gridFilter, setGridFilter] = useState<'all' | 'available' | 'sold' | 'reserved'>('all')
   const [confirmModal, setConfirmModal] = useState<ConfirmState>({ open: false, title: '', message: '', onConfirm: () => {} })
 
   function showConfirm(opts: Omit<ConfirmState, 'open'>) {
@@ -158,7 +159,7 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen pb-8">
+    <div className="min-h-screen pb-4">
       {/* Header */}
       <header className="sticky top-0 z-10 bg-background/80 backdrop-blur-md border-b px-4 py-3">
         <div className="max-w-7xl mx-auto">
@@ -169,7 +170,7 @@ function App() {
             </h1>
             <div className="flex items-center gap-2">
               <button
-                onClick={() => setBuyerView(v => !v)}
+                onClick={() => { setBuyerView(v => !v); setGridFilter('all') }}
                 className={`text-xs transition-colors flex items-center gap-1 px-2 py-1 rounded-md ${
                   buyerView
                     ? 'bg-blue-100 text-blue-600'
@@ -194,23 +195,50 @@ function App() {
       </header>
 
       {/* Two-column layout */}
-      <main className="max-w-7xl mx-auto px-3 pt-4 flex flex-col lg:flex-row gap-6">
+      <main className={`mx-auto px-3 pt-4 flex flex-col lg:flex-row gap-6 ${buyerView ? 'max-w-3xl' : 'max-w-7xl'}`}>
         {/* Left column: Stats + Search + Grid */}
         <div className="flex-1 min-w-0">
           {/* Stats */}
           <div className="grid grid-cols-3 gap-2 mb-3">
-            <div className="bg-card rounded-lg p-2 text-center border">
+            <button
+              onClick={() => buyerView && setGridFilter(f => f === 'available' ? 'all' : 'available')}
+              className={`rounded-lg p-2 text-center border transition-all ${
+                buyerView ? 'cursor-pointer active:scale-95' : 'cursor-default'
+              } ${
+                gridFilter === 'available' && buyerView
+                  ? 'bg-foreground/10 border-foreground/40 ring-2 ring-foreground/20'
+                  : 'bg-card'
+              }`}
+            >
               <div className="text-lg font-bold">{stats.available}</div>
               <div className="text-[11px] text-muted-foreground">Disponibles</div>
-            </div>
-            <div className="bg-sold/10 rounded-lg p-2 text-center border border-sold/30">
+            </button>
+            <button
+              onClick={() => buyerView && setGridFilter(f => f === 'sold' ? 'all' : 'sold')}
+              className={`rounded-lg p-2 text-center border transition-all ${
+                buyerView ? 'cursor-pointer active:scale-95' : 'cursor-default'
+              } ${
+                gridFilter === 'sold' && buyerView
+                  ? 'bg-sold/20 border-sold ring-2 ring-sold/30'
+                  : 'bg-sold/10 border-sold/30'
+              }`}
+            >
               <div className="text-lg font-bold text-sold">{stats.sold}</div>
               <div className="text-[11px] text-sold/70">Vendidos</div>
-            </div>
-            <div className="bg-reserved/10 rounded-lg p-2 text-center border border-reserved/30">
+            </button>
+            <button
+              onClick={() => buyerView && setGridFilter(f => f === 'reserved' ? 'all' : 'reserved')}
+              className={`rounded-lg p-2 text-center border transition-all ${
+                buyerView ? 'cursor-pointer active:scale-95' : 'cursor-default'
+              } ${
+                gridFilter === 'reserved' && buyerView
+                  ? 'bg-reserved/20 border-reserved ring-2 ring-reserved/30'
+                  : 'bg-reserved/10 border-reserved/30'
+              }`}
+            >
               <div className="text-lg font-bold text-reserved">{stats.reserved}</div>
               <div className="text-[11px] text-reserved/70">Reservados</div>
-            </div>
+            </button>
           </div>
 
           {/* Grid */}
@@ -220,6 +248,12 @@ function App() {
               const isSold = ticket?.status === 'sold'
               const isReserved = ticket?.status === 'reserved'
 
+              const hidden = buyerView && gridFilter !== 'all' && (
+                (gridFilter === 'available' && ticket != null) ||
+                (gridFilter === 'sold' && !isSold) ||
+                (gridFilter === 'reserved' && !isReserved)
+              )
+
               return (
                 <button
                   key={i}
@@ -227,6 +261,7 @@ function App() {
                   className={`
                     relative aspect-square rounded-lg border text-center flex flex-col items-center justify-center
                     transition-all overflow-hidden
+                    ${hidden ? 'opacity-10 pointer-events-none' : ''}
                     ${buyerView ? 'cursor-default' : 'active:scale-95'}
                     ${isSold
                       ? 'bg-sold text-white border-sold shadow-sm'
