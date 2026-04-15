@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { supabase, type Ticket } from './lib/supabase'
-import { Search, RotateCcw, X, Ticket as TicketIcon, Users, Clock, Plus, AlertTriangle, Eye, EyeOff, Trophy, Gift, Sparkles, Play, Trash2 } from 'lucide-react'
+import { Search, RotateCcw, X, Ticket as TicketIcon, Users, Clock, Plus, AlertTriangle, Trophy, Gift, Sparkles, Play, Trash2, Link as LinkIcon, Check } from 'lucide-react'
 import confetti from 'canvas-confetti'
 
 type TicketMap = Map<number, Ticket>
@@ -19,6 +19,10 @@ type Winner = {
   buyerName: string
 }
 
+const params = new URLSearchParams(window.location.search)
+const ADMIN_KEY = import.meta.env.VITE_ADMIN_KEY || ''
+const isAdminView = params.get('admin') === ADMIN_KEY && ADMIN_KEY !== ''
+
 function App() {
   const [tickets, setTickets] = useState<TicketMap>(new Map())
   const [loading, setLoading] = useState(true)
@@ -31,8 +35,7 @@ function App() {
   const [buyerFilter, setBuyerFilter] = useState<'all' | 'sold' | 'reserved'>('all')
   const [saving, setSaving] = useState(false)
   const [totalNumbers, setTotalNumbers] = useState(100)
-  const [buyerView, setBuyerView] = useState(false)
-  const [gridFilter, setGridFilter] = useState<'all' | 'available' | 'sold' | 'reserved'>('all')
+  const [linkCopied, setLinkCopied] = useState(false)
   const [confirmModal, setConfirmModal] = useState<ConfirmState>({ open: false, title: '', message: '', onConfirm: () => {} })
 
   // Tab & Sorteo state
@@ -68,14 +71,22 @@ function App() {
     setLoading(false)
   }
 
+  const maxTicketNumber = useMemo(() => {
+    let max = 0
+    tickets.forEach((_, num) => { if (num > max) max = num })
+    return max
+  }, [tickets])
+
+  const displayTotal = Math.max(totalNumbers, Math.ceil(maxTicketNumber / 50) * 50)
+
   const stats = useMemo(() => {
     let sold = 0, reserved = 0
     tickets.forEach(t => {
       if (t.status === 'sold') sold++
       else reserved++
     })
-    return { sold, reserved, available: totalNumbers - tickets.size }
-  }, [tickets, totalNumbers])
+    return { sold, reserved, available: displayTotal - tickets.size }
+  }, [tickets, displayTotal])
 
   const filteredBuyers = useMemo(() => {
     const list = Array.from(tickets.values())
@@ -270,6 +281,63 @@ function App() {
     )
   }
 
+  if (!isAdminView) {
+    return (
+      <div className="min-h-screen pb-4">
+        <header className="sticky top-0 z-10 bg-background/80 backdrop-blur-md border-b px-4 py-3">
+          <div className="max-w-3xl mx-auto">
+            <h1 className="text-lg font-bold flex items-center gap-2">
+              <TicketIcon className="w-5 h-5" />
+              Talonario de Rifa
+            </h1>
+          </div>
+        </header>
+        <main className="mx-auto px-3 pt-4 max-w-3xl">
+          {/* Stats */}
+          <div className="grid grid-cols-3 gap-2 mb-3">
+            <div className="rounded-lg p-2 text-center border bg-card">
+              <div className="text-lg font-bold">{stats.available}</div>
+              <div className="text-[11px] text-muted-foreground">Disponibles</div>
+            </div>
+            <div className="rounded-lg p-2 text-center border bg-sold/10 border-sold/30">
+              <div className="text-lg font-bold text-sold">{stats.sold}</div>
+              <div className="text-[11px] text-sold/70">Vendidos</div>
+            </div>
+            <div className="rounded-lg p-2 text-center border bg-reserved/10 border-reserved/30">
+              <div className="text-lg font-bold text-reserved">{stats.reserved}</div>
+              <div className="text-[11px] text-reserved/70">Reservados</div>
+            </div>
+          </div>
+
+          {/* Grid (read-only) */}
+          <div className="grid grid-cols-5 sm:grid-cols-10 gap-1.5">
+            {Array.from({ length: displayTotal }, (_, i) => i + 1).map(i => {
+              const ticket = tickets.get(i)
+              const isSold = ticket?.status === 'sold'
+              const isReserved = ticket?.status === 'reserved'
+              return (
+                <div
+                  key={i}
+                  className={`
+                    relative aspect-square rounded-lg border text-center flex flex-col items-center justify-center
+                    ${isSold
+                      ? 'bg-sold text-white border-sold shadow-sm'
+                      : isReserved
+                        ? 'bg-reserved text-white border-reserved shadow-sm'
+                        : 'bg-card border-border'
+                    }
+                  `}
+                >
+                  <span className="text-xs font-bold">{String(i)}</span>
+                </div>
+              )
+            })}
+          </div>
+        </main>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen pb-4">
       {/* Header */}
@@ -281,8 +349,7 @@ function App() {
               Talonario de Rifa
             </h1>
             <div className="flex items-center gap-2">
-              {!buyerView && (
-                <div className="flex bg-muted rounded-lg p-0.5 gap-0.5">
+              <div className="flex bg-muted rounded-lg p-0.5 gap-0.5">
                   <button
                     onClick={() => setAdminTab('rifa')}
                     className={`text-xs px-3 py-1 rounded-md transition-all font-medium flex items-center gap-1.5 ${
@@ -306,19 +373,23 @@ function App() {
                     Sorteo
                   </button>
                 </div>
-              )}
               <button
-                onClick={() => { setBuyerView(v => !v); setGridFilter('all'); setAdminTab('rifa') }}
+                onClick={() => {
+                  const url = `${window.location.origin}${window.location.pathname}`
+                  navigator.clipboard.writeText(url)
+                  setLinkCopied(true)
+                  setTimeout(() => setLinkCopied(false), 2000)
+                }}
                 className={`text-xs transition-colors flex items-center gap-1 px-2 py-1 rounded-md ${
-                  buyerView
-                    ? 'bg-blue-100 text-blue-600'
+                  linkCopied
+                    ? 'bg-green-100 text-green-600'
                     : 'text-muted-foreground hover:text-foreground hover:bg-muted'
                 }`}
               >
-                {buyerView ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                {buyerView ? 'Vista comprador' : 'Vista admin'}
+                {linkCopied ? <Check className="w-3.5 h-3.5" /> : <LinkIcon className="w-3.5 h-3.5" />}
+                {linkCopied ? 'Copiado!' : 'Copiar link público'}
               </button>
-              {!buyerView && adminTab === 'rifa' && (
+              {adminTab === 'rifa' && (
                 <button
                   onClick={handleReset}
                   className="text-xs text-muted-foreground hover:text-red-500 transition-colors flex items-center gap-1 px-2 py-1 rounded-md hover:bg-red-50"
@@ -333,7 +404,7 @@ function App() {
       </header>
 
       {/* Sorteo Tab */}
-      {!buyerView && adminTab === 'sorteo' && (
+      {adminTab === 'sorteo' && (
         <main className="mx-auto px-3 pt-4 max-w-2xl">
           {/* Config */}
           <div className="bg-card rounded-xl border p-4 mb-4">
@@ -507,86 +578,51 @@ function App() {
       )}
 
       {/* Two-column layout */}
-      {(buyerView || adminTab === 'rifa') && <main className={`mx-auto px-3 pt-4 flex flex-col lg:flex-row gap-6 ${buyerView ? 'max-w-3xl' : 'max-w-7xl'}`}>
+      {adminTab === 'rifa' && <main className="mx-auto px-3 pt-4 flex flex-col lg:flex-row gap-6 max-w-7xl">
         {/* Left column: Stats + Search + Grid */}
         <div className="flex-1 min-w-0">
           {/* Stats */}
           <div className="grid grid-cols-3 gap-2 mb-3">
-            <button
-              onClick={() => buyerView && setGridFilter(f => f === 'available' ? 'all' : 'available')}
-              className={`rounded-lg p-2 text-center border transition-all ${
-                buyerView ? 'cursor-pointer active:scale-95' : 'cursor-default'
-              } ${
-                gridFilter === 'available' && buyerView
-                  ? 'bg-foreground/10 border-foreground/40 ring-2 ring-foreground/20'
-                  : 'bg-card'
-              }`}
-            >
+            <div className="rounded-lg p-2 text-center border bg-card">
               <div className="text-lg font-bold">{stats.available}</div>
               <div className="text-[11px] text-muted-foreground">Disponibles</div>
-            </button>
-            <button
-              onClick={() => buyerView && setGridFilter(f => f === 'sold' ? 'all' : 'sold')}
-              className={`rounded-lg p-2 text-center border transition-all ${
-                buyerView ? 'cursor-pointer active:scale-95' : 'cursor-default'
-              } ${
-                gridFilter === 'sold' && buyerView
-                  ? 'bg-sold/20 border-sold ring-2 ring-sold/30'
-                  : 'bg-sold/10 border-sold/30'
-              }`}
-            >
+            </div>
+            <div className="rounded-lg p-2 text-center border bg-sold/10 border-sold/30">
               <div className="text-lg font-bold text-sold">{stats.sold}</div>
               <div className="text-[11px] text-sold/70">Vendidos</div>
-            </button>
-            <button
-              onClick={() => buyerView && setGridFilter(f => f === 'reserved' ? 'all' : 'reserved')}
-              className={`rounded-lg p-2 text-center border transition-all ${
-                buyerView ? 'cursor-pointer active:scale-95' : 'cursor-default'
-              } ${
-                gridFilter === 'reserved' && buyerView
-                  ? 'bg-reserved/20 border-reserved ring-2 ring-reserved/30'
-                  : 'bg-reserved/10 border-reserved/30'
-              }`}
-            >
+            </div>
+            <div className="rounded-lg p-2 text-center border bg-reserved/10 border-reserved/30">
               <div className="text-lg font-bold text-reserved">{stats.reserved}</div>
               <div className="text-[11px] text-reserved/70">Reservados</div>
-            </button>
+            </div>
           </div>
 
           {/* Grid */}
           <div className="grid grid-cols-5 sm:grid-cols-10 gap-1.5">
-            {Array.from({ length: totalNumbers }, (_, i) => i + 1).map(i => {
+            {Array.from({ length: displayTotal }, (_, i) => i + 1).map(i => {
               const ticket = tickets.get(i)
               const isSold = ticket?.status === 'sold'
               const isReserved = ticket?.status === 'reserved'
 
-              const hidden = buyerView && gridFilter !== 'all' && (
-                (gridFilter === 'available' && ticket != null) ||
-                (gridFilter === 'sold' && !isSold) ||
-                (gridFilter === 'reserved' && !isReserved)
-              )
-
               return (
                 <button
                   key={i}
-                  onClick={() => !buyerView && openModal(i)}
+                  onClick={() => openModal(i)}
                   className={`
                     relative aspect-square rounded-lg border text-center flex flex-col items-center justify-center
-                    transition-all overflow-hidden
-                    ${hidden ? 'opacity-10 pointer-events-none' : ''}
-                    ${buyerView ? 'cursor-default' : 'active:scale-95'}
+                    transition-all overflow-hidden active:scale-95
                     ${isSold
                       ? 'bg-sold text-white border-sold shadow-sm'
                       : isReserved
                         ? 'bg-reserved text-white border-reserved shadow-sm'
-                        : 'bg-card border-border' + (buyerView ? '' : ' hover:bg-muted hover:border-foreground/20')
+                        : 'bg-card border-border hover:bg-muted hover:border-foreground/20'
                     }
                   `}
                 >
-                  <span className={`text-xs font-bold ${ticket && !buyerView ? 'opacity-70' : ''}`}>
+                  <span className={`text-xs font-bold ${ticket ? 'opacity-70' : ''}`}>
                     {String(i)}
                   </span>
-                  {ticket && !buyerView && (
+                  {ticket && (
                     <span className="text-[7px] sm:text-[8px] leading-tight px-0.5 truncate w-full font-medium">
                       {ticket.buyer_name.split(' ')[0]}
                     </span>
@@ -597,17 +633,16 @@ function App() {
           </div>
 
           {/* Add more numbers button */}
-          {!buyerView && <button
+          <button
             onClick={() => setTotalNumbers(prev => prev + 50)}
             className="w-full mt-3 py-2.5 text-sm font-medium rounded-lg border-2 border-dashed border-border text-muted-foreground hover:border-foreground/30 hover:text-foreground transition-colors flex items-center justify-center gap-2"
           >
             <Plus className="w-4 h-4" />
             Agregar 50 números más (hasta {totalNumbers + 50})
-          </button>}
+          </button>
         </div>
 
         {/* Right column: Buyer List */}
-        {!buyerView && (
         <aside className="lg:w-96 lg:shrink-0">
           <div className="lg:sticky lg:top-16">
             <div className="flex items-center justify-between mb-3">
@@ -679,7 +714,6 @@ function App() {
             )}
           </div>
         </aside>
-        )}
       </main>}
 
       {/* Modal */}
