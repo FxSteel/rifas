@@ -1,6 +1,7 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { supabase, type Ticket } from './lib/supabase'
-import { Search, RotateCcw, X, Ticket as TicketIcon, Users, Clock, Plus, AlertTriangle, Eye, EyeOff } from 'lucide-react'
+import { Search, RotateCcw, X, Ticket as TicketIcon, Users, Clock, Plus, AlertTriangle, Eye, EyeOff, Trophy, Gift, Sparkles, Play, Trash2 } from 'lucide-react'
+import confetti from 'canvas-confetti'
 
 type TicketMap = Map<number, Ticket>
 type ConfirmState = {
@@ -10,6 +11,12 @@ type ConfirmState = {
   confirmLabel?: string
   danger?: boolean
   onConfirm: () => void
+}
+type AdminTab = 'rifa' | 'sorteo'
+type Winner = {
+  prizeIndex: number
+  number: number
+  buyerName: string
 }
 
 function App() {
@@ -27,6 +34,15 @@ function App() {
   const [buyerView, setBuyerView] = useState(false)
   const [gridFilter, setGridFilter] = useState<'all' | 'available' | 'sold' | 'reserved'>('all')
   const [confirmModal, setConfirmModal] = useState<ConfirmState>({ open: false, title: '', message: '', onConfirm: () => {} })
+
+  // Tab & Sorteo state
+  const [adminTab, setAdminTab] = useState<AdminTab>('rifa')
+  const [totalPrizes, setTotalPrizes] = useState(1)
+  const [winners, setWinners] = useState<Winner[]>([])
+  const [isSpinning, setIsSpinning] = useState(false)
+  const [currentSpinNumber, setCurrentSpinNumber] = useState<number | null>(null)
+  const [currentPrizeIndex, setCurrentPrizeIndex] = useState(0)
+  const spinIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   function showConfirm(opts: Omit<ConfirmState, 'open'>) {
     setConfirmModal({ ...opts, open: true })
@@ -150,6 +166,102 @@ function App() {
     })
   }
 
+  const soldTickets = useMemo(() => {
+    return Array.from(tickets.values()).filter(t => t.status === 'sold')
+  }, [tickets])
+
+  const availableForDraw = useMemo(() => {
+    const winnerNumbers = new Set(winners.map(w => w.number))
+    return soldTickets.filter(t => !winnerNumbers.has(t.number))
+  }, [soldTickets, winners])
+
+  const fireConfetti = useCallback(() => {
+    const duration = 3000
+    const end = Date.now() + duration
+
+    const frame = () => {
+      confetti({
+        particleCount: 3,
+        angle: 60,
+        spread: 55,
+        origin: { x: 0, y: 0.7 },
+        colors: ['#8B5CF6', '#EC4899', '#F59E0B', '#10B981', '#3B82F6'],
+      })
+      confetti({
+        particleCount: 3,
+        angle: 120,
+        spread: 55,
+        origin: { x: 1, y: 0.7 },
+        colors: ['#8B5CF6', '#EC4899', '#F59E0B', '#10B981', '#3B82F6'],
+      })
+
+      if (Date.now() < end) {
+        requestAnimationFrame(frame)
+      }
+    }
+    frame()
+
+    // Big burst
+    confetti({
+      particleCount: 100,
+      spread: 100,
+      origin: { y: 0.6 },
+      colors: ['#8B5CF6', '#EC4899', '#F59E0B', '#10B981', '#3B82F6'],
+    })
+  }, [])
+
+  function startSpin() {
+    if (availableForDraw.length === 0 || isSpinning) return
+
+    setIsSpinning(true)
+    const prizeIdx = winners.length
+
+    // Pick the winner upfront
+    const winnerIdx = Math.floor(Math.random() * availableForDraw.length)
+    const winnerTicket = availableForDraw[winnerIdx]
+
+    // Animate cycling through numbers
+    let speed = 50
+    let elapsed = 0
+    const totalDuration = 8000
+
+    function tick() {
+      const randomTicket = availableForDraw[Math.floor(Math.random() * availableForDraw.length)]
+      setCurrentSpinNumber(randomTicket.number)
+      elapsed += speed
+
+      if (elapsed < totalDuration) {
+        // Slow down gradually
+        const progress = elapsed / totalDuration
+        speed = 50 + progress * progress * 500
+        spinIntervalRef.current = setTimeout(tick, speed)
+      } else {
+        // Reveal winner
+        setCurrentSpinNumber(winnerTicket.number)
+        setWinners(prev => [...prev, {
+          prizeIndex: prizeIdx,
+          number: winnerTicket.number,
+          buyerName: winnerTicket.buyer_name,
+        }])
+        setCurrentPrizeIndex(prizeIdx + 1)
+        setIsSpinning(false)
+        fireConfetti()
+      }
+    }
+
+    tick()
+  }
+
+  function resetSorteo() {
+    if (spinIntervalRef.current) {
+      clearTimeout(spinIntervalRef.current)
+    }
+    setWinners([])
+    setCurrentPrizeIndex(0)
+    setCurrentSpinNumber(null)
+    setIsSpinning(false)
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -169,8 +281,34 @@ function App() {
               Talonario de Rifa
             </h1>
             <div className="flex items-center gap-2">
+              {!buyerView && (
+                <div className="flex bg-muted rounded-lg p-0.5 gap-0.5">
+                  <button
+                    onClick={() => setAdminTab('rifa')}
+                    className={`text-xs px-3 py-1 rounded-md transition-all font-medium flex items-center gap-1.5 ${
+                      adminTab === 'rifa'
+                        ? 'bg-card text-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <TicketIcon className="w-3.5 h-3.5" />
+                    Rifa
+                  </button>
+                  <button
+                    onClick={() => setAdminTab('sorteo')}
+                    className={`text-xs px-3 py-1 rounded-md transition-all font-medium flex items-center gap-1.5 ${
+                      adminTab === 'sorteo'
+                        ? 'bg-card text-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <Trophy className="w-3.5 h-3.5" />
+                    Sorteo
+                  </button>
+                </div>
+              )}
               <button
-                onClick={() => { setBuyerView(v => !v); setGridFilter('all') }}
+                onClick={() => { setBuyerView(v => !v); setGridFilter('all'); setAdminTab('rifa') }}
                 className={`text-xs transition-colors flex items-center gap-1 px-2 py-1 rounded-md ${
                   buyerView
                     ? 'bg-blue-100 text-blue-600'
@@ -180,7 +318,7 @@ function App() {
                 {buyerView ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                 {buyerView ? 'Vista comprador' : 'Vista admin'}
               </button>
-              {!buyerView && (
+              {!buyerView && adminTab === 'rifa' && (
                 <button
                   onClick={handleReset}
                   className="text-xs text-muted-foreground hover:text-red-500 transition-colors flex items-center gap-1 px-2 py-1 rounded-md hover:bg-red-50"
@@ -194,8 +332,182 @@ function App() {
         </div>
       </header>
 
+      {/* Sorteo Tab */}
+      {!buyerView && adminTab === 'sorteo' && (
+        <main className="mx-auto px-3 pt-4 max-w-2xl">
+          {/* Config */}
+          <div className="bg-card rounded-xl border p-4 mb-4">
+            <h2 className="text-base font-bold flex items-center gap-2 mb-3">
+              <Gift className="w-4 h-4" />
+              Configuración del Sorteo
+            </h2>
+            <div className="flex items-center gap-3">
+              <label className="text-sm font-medium">Cantidad de premios:</label>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setTotalPrizes(p => Math.max(Math.max(1, winners.length), p - 1))}
+                  disabled={isSpinning}
+                  className="w-8 h-8 rounded-lg border bg-muted hover:bg-foreground/10 transition-colors text-sm font-bold disabled:opacity-50"
+                >
+                  -
+                </button>
+                <span className="text-lg font-bold w-8 text-center">{totalPrizes}</span>
+                <button
+                  onClick={() => setTotalPrizes(p => Math.min(p + 1, soldTickets.length))}
+                  disabled={isSpinning}
+                  className="w-8 h-8 rounded-lg border bg-muted hover:bg-foreground/10 transition-colors text-sm font-bold disabled:opacity-50"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">
+              {soldTickets.length} números vendidos participan en el sorteo
+            </p>
+          </div>
+
+          {/* Eligible numbers */}
+          <div className="bg-card rounded-xl border p-4 mb-4">
+            <h2 className="text-sm font-bold text-muted-foreground mb-3">
+              Números participantes ({availableForDraw.length})
+            </h2>
+            <div className="flex flex-wrap gap-1.5">
+              {soldTickets.map(t => {
+                const isWinner = winners.some(w => w.number === t.number)
+                return (
+                  <span
+                    key={t.number}
+                    className={`inline-flex items-center justify-center w-10 h-10 rounded-lg text-xs font-bold transition-all ${
+                      isWinner
+                        ? 'bg-winner text-white ring-2 ring-winner/30'
+                        : 'bg-sold/10 text-sold border border-sold/20'
+                    }`}
+                  >
+                    {t.number}
+                  </span>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Spin Area */}
+          <div className="bg-card rounded-xl border p-6 mb-4 text-center">
+            {soldTickets.length === 0 ? (
+              <div className="py-8">
+                <Trophy className="w-12 h-12 mx-auto text-muted-foreground/30 mb-3" />
+                <p className="text-sm text-muted-foreground">No hay números vendidos para sortear</p>
+              </div>
+            ) : winners.length >= totalPrizes && !isSpinning ? (
+              <div className="py-4">
+                <Sparkles className="w-10 h-10 mx-auto text-winner mb-2" />
+                <p className="text-lg font-bold text-winner">Sorteo completado</p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Se seleccionaron los {totalPrizes} ganador{totalPrizes > 1 ? 'es' : ''}
+                </p>
+              </div>
+            ) : (
+              <>
+                <p className="text-sm text-muted-foreground mb-2">
+                  Premio #{currentPrizeIndex + 1} de {totalPrizes}
+                </p>
+                {/* Spinning number display */}
+                <div className={`inline-flex items-center justify-center w-32 h-32 rounded-2xl border-4 mb-4 transition-all ${
+                  isSpinning
+                    ? 'border-winner/50 bg-winner/5'
+                    : currentSpinNumber != null
+                      ? 'border-winner bg-winner/10 animate-winner-glow'
+                      : 'border-border bg-muted'
+                }`}>
+                  <span className={`font-bold transition-all ${
+                    isSpinning
+                      ? 'text-4xl text-winner/70'
+                      : currentSpinNumber != null
+                        ? 'text-5xl text-winner'
+                        : 'text-4xl text-muted-foreground/30'
+                  }`}>
+                    {currentSpinNumber != null
+                      ? String(currentSpinNumber)
+                      : '?'}
+                  </span>
+                </div>
+
+                {/* Winner name reveal */}
+                {!isSpinning && winners.length > 0 && winners.length === currentPrizeIndex && (
+                  <div className="mb-4 animate-winner-bounce">
+                    <p className="text-lg font-bold">{winners[winners.length - 1].buyerName}</p>
+                    <p className="text-xs text-muted-foreground">Número {winners[winners.length - 1].number}</p>
+                  </div>
+                )}
+
+                <button
+                  onClick={startSpin}
+                  disabled={isSpinning || availableForDraw.length === 0 || winners.length >= totalPrizes}
+                  className={`px-8 py-3 rounded-xl text-sm font-bold transition-all disabled:opacity-50 flex items-center gap-2 mx-auto ${
+                    isSpinning
+                      ? 'bg-winner/20 text-winner'
+                      : 'bg-winner text-white hover:opacity-90 active:scale-95'
+                  }`}
+                >
+                  {isSpinning ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" />
+                      Sorteando...
+                    </>
+                  ) : (
+                    <>
+                      <Play className="w-4 h-4" />
+                      {winners.length === 0 ? 'Iniciar Sorteo' : 'Sortear Siguiente'}
+                    </>
+                  )}
+                </button>
+              </>
+            )}
+          </div>
+
+          {/* Winners List */}
+          {winners.length > 0 && (
+            <div className="bg-card rounded-xl border p-4 mb-4">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-base font-bold flex items-center gap-2">
+                  <Trophy className="w-4 h-4 text-winner" />
+                  Ganadores
+                </h2>
+                <button
+                  onClick={resetSorteo}
+                  disabled={isSpinning}
+                  className="text-xs text-muted-foreground hover:text-red-500 transition-colors flex items-center gap-1 px-2 py-1 rounded-md hover:bg-red-50 disabled:opacity-50"
+                >
+                  <Trash2 className="w-3 h-3" />
+                  Reiniciar sorteo
+                </button>
+              </div>
+              <div className="space-y-2">
+                {winners.map((w, i) => (
+                  <div
+                    key={w.number}
+                    className="flex items-center gap-3 p-3 rounded-lg border bg-winner/5 border-winner/20"
+                  >
+                    <div className="w-9 h-9 rounded-lg bg-winner text-white flex items-center justify-center text-sm font-bold shrink-0">
+                      {i + 1}°
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium">{w.buyerName}</div>
+                      <div className="text-xs text-muted-foreground">Número {w.number}</div>
+                    </div>
+                    <div className="text-xs font-semibold text-winner bg-winner/10 px-2 py-0.5 rounded-full">
+                      Premio #{i + 1}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+        </main>
+      )}
+
       {/* Two-column layout */}
-      <main className={`mx-auto px-3 pt-4 flex flex-col lg:flex-row gap-6 ${buyerView ? 'max-w-3xl' : 'max-w-7xl'}`}>
+      {(buyerView || adminTab === 'rifa') && <main className={`mx-auto px-3 pt-4 flex flex-col lg:flex-row gap-6 ${buyerView ? 'max-w-3xl' : 'max-w-7xl'}`}>
         {/* Left column: Stats + Search + Grid */}
         <div className="flex-1 min-w-0">
           {/* Stats */}
@@ -368,7 +680,7 @@ function App() {
           </div>
         </aside>
         )}
-      </main>
+      </main>}
 
       {/* Modal */}
       {modalOpen && selectedNumber !== null && (
